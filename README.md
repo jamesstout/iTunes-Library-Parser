@@ -90,3 +90,10 @@ The library is an array of track objects. The track object has no methods, but c
 * Visible
 * Volume_Adjustment
 * Year
+
+## Playlist Properties
+
+* Name
+* Playlist_ID
+* Playlist_Persistent_ID
+* tracks array['Track_ID]['Name']['Location']
