@@ -96,4 +96,4 @@ The library is an array of track objects. The track object has no methods, but c
 * Name
 * Playlist_ID
 * Playlist_Persistent_ID
-* tracks array['Track_ID]['Name']['Location']
+* tracks array['Track_ID]['Name']['Location']['Artist]['Album']['Total_Time']

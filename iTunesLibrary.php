@@ -52,10 +52,12 @@ class iTunesLibrary {
           $tmpValue = str_replace("&amp;", "&", str_replace("\"", "”", strval($matches[2][$key])));
           
           // if the key is a track ID, add to our tracks array 
-          // not sure the default values are needed...
           if ($tmpKey == "Track_ID") {
-            $tracks[$tmpValue]["Name"] = "";
-            $tracks[$tmpValue]["Location"] = "";
+            $tracks[$tmpValue]["Name"] = null;
+            $tracks[$tmpValue]["Location"] = null;
+            $tracks[$tmpValue]["Artist"] = null;
+            $tracks[$tmpValue]["Album"] = null;
+            $tracks[$tmpValue]["Total_Time"] = null;
           }
           else {
             $playlist->{ $tmpKey } = $tmpValue;
@@ -67,17 +69,23 @@ class iTunesLibrary {
         $this->addPlaylist($playlist);
       }
       
-      // add Name and Location to playlist tracks
+      // add Name and Location, plus Artist, Album, time (for matching tracks with the same name) to playlist tracks
       foreach ($this->_playlists as $playlist) {
-        $msg = "[" . $playlist->Name . "] - Track count: " . count($playlist->tracks) . "\n";
-        printf("\033[32m%s\033[0m", $msg);
+        
         
         // skip empty and large playlists (large count could be a variable I guess)
         if (count($playlist->tracks)> 0 && count($playlist->tracks) < $maxPlaylistTrackCount) {
+
+          $msg = "[" . $playlist->Name . "] - Track count: " . count($playlist->tracks) . "\n";
+          printf("\033[32m%s\033[0m", $msg);
+
           foreach ($playlist->tracks as $trackID => $trackValues) {
-            list($name, $location) = $this->getNameAndLocation($trackID);
+            list($name, $location, $artist, $albumn, $totalTime) = $this->getNameAndLocationEtc($trackID);
             $playlist->tracks[$trackID]["Name"] = $name;
             $playlist->tracks[$trackID]["Location"] = $location;
+            $playlist->tracks[$trackID]["Artist"] = $artist;
+            $playlist->tracks[$trackID]["Album"] = $albumn;
+            $playlist->tracks[$trackID]["Total_Time"] = $totalTime;
           }
         }
       }
@@ -91,10 +99,16 @@ class iTunesLibrary {
   *
   * @return array
   */ 
-  private function getNameAndLocation( $trackID ){ 
+  private function getNameAndLocationEtc( $trackID ){ 
     foreach ($this->_tracks as $track ) {
       if($track->Track_ID == $trackID){
-        return array($track->Name, $track->Location);
+        // in tests Name, Location and Total_Time were always present
+        return array(isset($track->Name)        ? $track->Name :      null, 
+                      isset($track->Location)   ? $track->Location :  null, 
+                      isset($track->Artist)     ? $track->Artist :    null,
+                      isset($track->Album)      ? $track->Album :     null, 
+                      isset($track->Total_Time) ? $track->Total_Time :null
+                    );
       }    
     }
     // could exit or log error here...
@@ -105,18 +119,98 @@ class iTunesLibrary {
   * Public as expected to be called to find the new ID 
   * in a new library, using the name from an old library
   *
+  * @param string $trackID
   * @param string $trackName
+  * @param string $totalTime
+  * @param string $artist can be null
+  * @param string $album can be null
   *
   * @return array
   */ 
-  public function getIDAndLocation( $trackName ){ 
-    
+  public function getIDAndLocation($trackID, $trackName, $totalTime, $artist, $album){ 
+
+    // error checks
+    if($trackName == null){
+      echo "track name null\n";
+      return array(null, null);
+    }
+
+    $match=0;
+    $potentialMatch= array();
+
     foreach ( $this->_tracks as $track ) {
-      if($track->Name == $trackName){
-        return array($track->Track_ID, $track->Location);
+      // echo "looking for: [$trackName], [$totalTime], [$artist], [$album]\n";
+
+      // match on as much as possible
+      if( $track->Name == $trackName && 
+        (is_null($totalTime) == false && $track->Total_Time == $totalTime) && 
+        (is_null($artist) == false && $track->Artist == $artist) && 
+        (is_null($album) == false && $track->Album == $album)
+        ){
+          return array($track->Track_ID, $track->Location);
+      }
+
+      // if no match, construct some potential matches
+      $potentialMatch[$trackName]["TotalTime"] = $totalTime;
+      $potentialMatch[$trackName]["Artist"] = (is_null($artist) == false ? $artist : "NO ARTIST");
+      $potentialMatch[$trackName]["Album"] = (is_null($album) == false ? $album : "NO ALBUM");
+      
+      // tmp vars
+      $tmpArtist = (isset($track->Artist) == true ? $track->Artist : "NO ARTIST");
+      $tmpAlbum = (isset($track->Album) == true ? $track->Album : "NO ALBUM");
+      
+      // if track name, total time and artist match, grab the details
+      if ($track->Total_Time == $totalTime && $track->Name == $trackName && is_null($artist) == false && $tmpArtist == $artist) {
+ 
+          $match++;
+
+          $potentialMatch[$trackName]['Match'][$match]["Type"] = "Name_TotalTime";
+          $potentialMatch[$trackName]['Match'][$match]["Name"] = $track->Name;
+          $potentialMatch[$trackName]['Match'][$match]["Track_ID"] = $track->Track_ID;
+          $potentialMatch[$trackName]['Match'][$match]["TotalTime"] = $track->Total_Time;
+          $potentialMatch[$trackName]['Match'][$match]["Artist"] = $tmpArtist;
+          $potentialMatch[$trackName]['Match'][$match]["Album"] = $tmpAlbum;
+          $potentialMatch[$trackName]['Match'][$match]["Location"] = $track->Location;
       }
     }
+
+    if ($match>0) {
+      echo "for: [$trackID], [$trackName], [$totalTime], [$artist], [$album]\n";
+
+      $tmpTrackID="";
+      $tmpLocation="";
+      $tmpAlbum="";
+      
+      // choose best
+      // we know name, time and artist match
+      // choose first with an album?
+      // then if there is another match without an album
+      // use that
+      foreach ($potentialMatch as $key => $value) {
+        foreach ($value['Match'] as $k => $v) {
+
+          if($v['Album'] != 'NO ALBUM'){
+            $tmpTrackID=$v["Track_ID"];
+            $tmpLocation=$v["Location"];
+            $tmpAlbum=$v["Album"];
+            break;
+          }
+
+          if($v['Album'] == 'NO ALBUM'){
+            $tmpTrackID=$v["Track_ID"];
+            $tmpLocation=$v["Location"];
+            $tmpAlbum=$v["Album"];
+          }
+        }
+      }
+
+      echo "match is now: [$tmpTrackID], [$tmpAlbum]\n";
+      return array($tmpTrackID, $tmpLocation);
+    }
+
     // could exit or log error here...
+    echo "could not match: [$trackName], [$totalTime], [$artist], [$album]\n";    
+    return array(null, null);
   }
   
   public function getTracks() { return $this->_tracks; } 
